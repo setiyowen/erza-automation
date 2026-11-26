@@ -20,6 +20,7 @@ export default defineConfig({
       // 1. Auto login + auto signup → saves .auth/user.json
       name: 'auth',
       testMatch: /auth\.auto\.spec\.ts/,
+      timeout: 120000,  // 2 min for 3-step login→signup→retry
       use: { ...devices['Desktop Chrome'] },
     },
     {
