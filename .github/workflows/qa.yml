@@ -41,7 +41,7 @@ jobs:
     needs: []
     steps:
       - uses: actions/checkout@v4
-      - run: go version
+      - uses: grafana/setup-k6@v1
       - name: k6 smoke
         run: k6 run -e AUTH_EMAIL="$AUTH_EMAIL" -e AUTH_PASSWORD="$AUTH_PASSWORD" k6/smoke.js
         env:
@@ -52,6 +52,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+      - uses: grafana/setup-k6@v1
       - name: k6 streaming load
         run: k6 run -e API_KEY="$API_KEY" -e STREAM_URL="$STREAM_URL" k6/load/load_test.js
         env:

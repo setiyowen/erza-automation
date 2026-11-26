@@ -47,8 +47,9 @@ test('auto login + auto signup', async ({ page, context }) => {
   const waitLoad = () => page.waitForLoadState('networkidle');
 
   // ---- STEP 1: Try Login ----
+  // Erza's sign-in page is at /en/signin (NOT /en/login which 404s)
   console.log('🔐 Attempting login...');
-  await page.goto(`${BASE}/en/login`, { waitUntil: 'networkidle' });
+  await page.goto(`${BASE}/en/signin`, { waitUntil: 'networkidle' });
   await waitLoad();
 
   // Wait for form to render (SPA)
@@ -133,7 +134,7 @@ test('auto login + auto signup', async ({ page, context }) => {
 
   // ---- STEP 3: Fallback — retry login (maybe account was created) ----
   console.log('🔁 Retrying login after signup attempt...');
-  await page.goto(`${BASE}/en/login`, { waitUntil: 'networkidle' });
+  await page.goto(`${BASE}/en/signin`, { waitUntil: 'networkidle' });
   await waitLoad();
 
   await emailInput.fill(EMAIL);
