@@ -3,7 +3,7 @@ name: QA
 on:
   workflow_dispatch:
   push:
-    branches: [ main, dev ]
+    branches: [ main ]
   pull_request:
 
 env:
@@ -11,11 +11,6 @@ env:
   BASE_URL: ${{ secrets.BASE_URL || 'https://api.dev.erza.ai/' }}
   AUTH_BASE_URL: ${{ secrets.AUTH_BASE_URL || 'https://api.dev.erza.ai/' }}
   STREAM_URL: ${{ secrets.STREAM_URL || 'https://ai.dev.erza.ai/api/article/template/stream' }}
-  AUTH_EMAIL: ${{ secrets.AUTH_EMAIL }}
-  AUTH_PASSWORD: ${{ secrets.AUTH_PASSWORD }}
-  ERZA_EMAIL: ${{ secrets.ERZA_EMAIL }}
-  ERZA_PASSWORD: ${{ secrets.ERZA_PASSWORD }}
-  API_KEY: ${{ secrets.API_KEY }}
 
 jobs:
   playwright-e2e:
@@ -26,10 +21,16 @@ jobs:
         with: { node-version: 20 }
       - run: npm ci
       - run: npx playwright install --with-deps chromium
-      # Auto login + auto signup first (saves .auth/user.json), then E2E
-      - run: npx playwright test --project=auth
-      - run: npx playwright test --project=chromium
+      # 1. Auto login (+ auto-signup fallback) -> saves .auth/user.json
+      - name: auto login / signup
+        run: npx playwright test --project=auth
+        env:
+          ERZA_EMAIL: ${{ secrets.ERZA_EMAIL }}
+          ERZA_PASSWORD: ${{ secrets.ERZA_PASSWORD }}
+      # 2. Authenticated E2E (reuses saved session)
+      - name: e2e tests
         if: always()
+        run: npx playwright test --project=chromium
       - uses: actions/upload-artifact@v4
         if: failure()
         with:
@@ -38,22 +39,31 @@ jobs:
 
   k6-smoke:
     runs-on: ubuntu-latest
-    needs: []
     steps:
       - uses: actions/checkout@v4
-      - uses: grafana/setup-k6@v1
-      - name: k6 smoke
-        run: k6 run -e AUTH_EMAIL="$AUTH_EMAIL" -e AUTH_PASSWORD="$AUTH_PASSWORD" k6/smoke.js
+      - name: Install k6 (grafana/k6 release binary)
+        run: |
+          set -euo pipefail
+          curl -sL https://github.com/grafana/k6/releases/download/v2.4.0/k6-v2.4.0-linux-amd64.tar.gz | tar -xz
+          sudo mv ./k6-v2.4.0-linux-amd64/k6 /usr/local/bin/k6
+          k6 version
+      - name: k6 smoke (login + Collection/User CRUD)
+        run: k6 run -e AUTH_BASE_URL="$AUTH_BASE_URL" -e BASE_URL="$BASE_URL" -e AUTH_EMAIL="$AUTH_EMAIL" -e AUTH_PASSWORD="$AUTH_PASSWORD" k6/smoke.js
         env:
-          AUTH_BASE_URL: ${{ env.AUTH_BASE_URL }}
-          BASE_URL: ${{ env.BASE_URL }}
+          AUTH_EMAIL: ${{ secrets.AUTH_EMAIL }}
+          AUTH_PASSWORD: ${{ secrets.AUTH_PASSWORD }}
 
   k6-load:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - uses: grafana/setup-k6@v1
-      - name: k6 streaming load
+      - name: Install k6 (grafana/k6 release binary)
+        run: |
+          set -euo pipefail
+          curl -sL https://github.com/grafana/k6/releases/download/v2.4.0/k6-v2.4.0-linux-amd64.tar.gz | tar -xz
+          sudo mv ./k6-v2.4.0-linux-amd64/k6 /usr/local/bin/k6
+          k6 version
+      - name: k6 streaming load (SSE via X-API-Key)
         run: k6 run -e API_KEY="$API_KEY" -e STREAM_URL="$STREAM_URL" k6/load/load_test.js
         env:
-          STREAM_URL: ${{ env.STREAM_URL }}
+          API_KEY: ${{ secrets.API_KEY }}
