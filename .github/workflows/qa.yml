@@ -1,0 +1,58 @@
+name: QA
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [ main, dev ]
+  pull_request:
+
+env:
+  ERZA_BASE_URL: ${{ secrets.ERZA_BASE_URL || 'https://dev.erza.ai' }}
+  BASE_URL: ${{ secrets.BASE_URL || 'https://api.dev.erza.ai/' }}
+  AUTH_BASE_URL: ${{ secrets.AUTH_BASE_URL || 'https://api.dev.erza.ai/' }}
+  STREAM_URL: ${{ secrets.STREAM_URL || 'https://ai.dev.erza.ai/api/article/template/stream' }}
+  AUTH_EMAIL: ${{ secrets.AUTH_EMAIL }}
+  AUTH_PASSWORD: ${{ secrets.AUTH_PASSWORD }}
+  ERZA_EMAIL: ${{ secrets.ERZA_EMAIL }}
+  ERZA_PASSWORD: ${{ secrets.ERZA_PASSWORD }}
+  API_KEY: ${{ secrets.API_KEY }}
+
+jobs:
+  playwright-e2e:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with: { node-version: 20 }
+      - run: npm ci
+      - run: npx playwright install --with-deps chromium
+      # Auto login + auto signup first (saves .auth/user.json), then E2E
+      - run: npx playwright test --project=auth
+      - run: npx playwright test --project=chromium
+        if: always()
+      - uses: actions/upload-artifact@v4
+        if: failure()
+        with:
+          name: playwright-report
+          path: playwright-report/
+
+  k6-smoke:
+    runs-on: ubuntu-latest
+    needs: []
+    steps:
+      - uses: actions/checkout@v4
+      - run: go version
+      - name: k6 smoke
+        run: k6 run -e AUTH_EMAIL="$AUTH_EMAIL" -e AUTH_PASSWORD="$AUTH_PASSWORD" k6/smoke.js
+        env:
+          AUTH_BASE_URL: ${{ env.AUTH_BASE_URL }}
+          BASE_URL: ${{ env.BASE_URL }}
+
+  k6-load:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: k6 streaming load
+        run: k6 run -e API_KEY="$API_KEY" -e STREAM_URL="$STREAM_URL" k6/load/load_test.js
+        env:
+          STREAM_URL: ${{ env.STREAM_URL }}

@@ -1,0 +1,23 @@
+{
+  "name": "erza-automation",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Erza AI QA: k6 API/load tests + Playwright E2E with auto-login/signup",
+  "scripts": {
+    "test": "node index.js",
+    "test:k6": "node index.js",
+    "test:k6:load": "k6 run k6/load/load_test.js",
+    "test:e2e": "playwright test",
+    "test:e2e:headed": "playwright test --headed",
+    "test:e2e:report": "playwright show-report",
+    "test:e2e:auth": "playwright test --project=auth"
+  },
+  "dependencies": {
+    "dotenv": "^16.4.7"
+  },
+  "devDependencies": {
+    "@playwright/test": "^1.45.0",
+    "@types/node": "^20.0.0",
+    "typescript": "^5.4.0"
+  }
+}
