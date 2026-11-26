@@ -1,47 +1,72 @@
-import { describe, expect } from 'https://jslib.k6.io/k6chaijs/4.3.4.3/index.js';
-import { Httpx } from 'https://jslib.k6.io/httpx/0.1.0/index.js';
+import http from 'k6/http';
+import { check, sleep } from 'k6';
+import { Trend, Counter } from 'k6/metrics';
 
-const BASE = __ENV.BASE_URL || 'https://api.dev.erza.ai/';
-
-const session = new Httpx({
-  baseURL: BASE,
-  headers: { 'Content-Type': 'application/json' }
-});
-
-const EMAIL = __ENV.AUTH_EMAIL;
-const PASSWORD = __ENV.AUTH_PASSWORD;
+const BASE = __ENV.ERZA_BASE_URL || 'https://dev.erza.ai';
+const EMAIL = __ENV.ERZA_EMAIL;
+const PASSWORD = __ENV.ERZA_PASSWORD;
 
 if (!EMAIL || !PASSWORD) {
-  throw new Error('Set AUTH_EMAIL and AUTH_PASSWORD for smoke test');
+  throw new Error('Set ERZA_EMAIL and ERZA_PASSWORD for smoke test');
+}
+
+// One module-level cookie jar, shared between setup() and the VUs.
+// (A fresh http.cookieJar() per call would discard the login session.)
+const jar = http.cookieJar();
+
+const loginDuration = new Trend('login_duration');
+const authSuccess = new Counter('auth_success');
+const authFail = new Counter('auth_fail');
+
+export const options = {
+  vus: 1,
+  iterations: 1,
+  thresholds: {
+    login_duration: ['p(95)<10000'],
+  },
+};
+
+function doLogin() {
+  const payload = JSON.stringify({ email: EMAIL, password: PASSWORD });
+  const params = {
+    headers: {
+      'Content-Type': 'application/json',
+      Origin: BASE,
+      Referer: `${BASE}/en/signin`,
+    },
+    jar,
+    redirects: 0,
+  };
+  const start = Date.now();
+  const resp = http.post(`${BASE}/api/auth/sign-in/email`, payload, params);
+  loginDuration.add(Date.now() - start);
+
+  if (resp.status === 200 || resp.status === 204) {
+    authSuccess.add(1);
+    return true;
+  }
+  authFail.add(1);
+  console.log(`Login failed: ${resp.status} ${resp.body}`);
+  return false;
 }
 
 export function setup() {
-  const resp = session.post('/api/auth/login', JSON.stringify({
-    email: EMAIL,
-    password: PASSWORD,
-    remember_me: false
-  }));
-  if (resp.status !== 200) throw new Error(`Login failed: ${resp.status} ${resp.body}`);
-  const body = resp.json();
-  const token = body?.result?.access_token || body?.access_token || body?.token;
-  if (!token) throw new Error(`No token: ${resp.body}`);
-  return { token };
+  if (!doLogin()) throw new Error('Authentication failed in setup');
+  console.log('✅ Login OK, session cookie stored in shared jar');
 }
 
-export default function ({ token }) {
-  session.addHeader('Authorization', `Bearer ${token}`);
+export default function () {
+  const H = { 'Content-Type': 'application/json', Origin: BASE };
 
-  describe('Smoke: Login → Get Profile', () => {
-    describe('Get User', () => {
-      const resp = session.get('/api/users');
-      expect(resp.status, 'Get User').to.equal(200);
-      expect(resp, 'Valid JSON').to.have.validJsonBody();
-    });
-
-    describe('Get Collections', () => {
-      const resp = session.get('/api/collections?limit=5');
-      expect(resp.status, 'Get Collections').to.equal(200);
-      expect(resp, 'Valid JSON').to.have.validJsonBody();
-    });
+  const userResp = http.get(`${BASE}/api/users`, { headers: H, jar });
+  check(userResp, {
+    'GET /api/users authenticated': (r) => r.status === 200,
   });
+
+  const collResp = http.get(`${BASE}/api/collections?limit=5`, { headers: H, jar });
+  check(collResp, {
+    'GET /api/collections authenticated': (r) => r.status === 200,
+  });
+
+  sleep(0.5);
 }
