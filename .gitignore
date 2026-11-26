@@ -7,3 +7,4 @@ blob-report/
 dist/
 *.log
 .DS_Store
+_art/
