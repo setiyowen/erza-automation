@@ -8,11 +8,8 @@ const PASSWORD = __ENV.ERZA_PASSWORD || '';
 
 // Demo-safe: placeholder credentials -> smoke test skips auth checks,
 // so portfolio CI stays green without a real account.
-const DEMO_MODE = EMAIL === 'test@example.com' && PASSWORD === 'placeholder-password';
-
-// One module-level cookie jar, shared between setup() and the VUs.
-// (A fresh http.cookieJar() per call would discard the login session.)
-const jar = http.cookieJar();
+const DEMO_MODE =
+  EMAIL === 'test@example.com' && PASSWORD === 'placeholder-password';
 
 const loginDuration = new Trend('login_duration');
 const authSuccess = new Counter('auth_success');
@@ -20,15 +17,29 @@ const authFail = new Counter('auth_fail');
 
 export const options = {
   vus: 1,
-  iterations: DEMO_MODE ? 1 : 1,
+  iterations: 1,
   thresholds: {
     checks: DEMO_MODE ? ['rate>=0'] : ['rate>0.9'],
   },
 };
 
-function doLogin() {
+/**
+ * NOTE: http.cookieJar() may only be created in VU context, NOT at module
+ * (init) top-level — k6 throws "Making cookie jars in the init context is not
+ * supported". So the jar is created inside the default (VU) function below.
+ */
+export default function () {
+  const jar = http.cookieJar();
+
+  if (DEMO_MODE) {
+    check(true, { 'demo-mode skip': () => true });
+    return;
+  }
+
+  // Better Auth login -> session cookie stored in this VU's jar
   const payload = JSON.stringify({ email: EMAIL, password: PASSWORD });
-  const params = {
+  const start = Date.now();
+  const login = http.post(`${BASE}/api/auth/sign-in/email`, payload, {
     headers: {
       'Content-Type': 'application/json',
       Origin: BASE,
@@ -36,43 +47,27 @@ function doLogin() {
     },
     jar,
     redirects: 0,
-  };
-  const start = Date.now();
-  const resp = http.post(`${BASE}/api/auth/sign-in/email`, payload, params);
+  });
   loginDuration.add(Date.now() - start);
 
-  if (resp.status === 200 || resp.status === 204) {
+  if (login.status === 200 || login.status === 204) {
     authSuccess.add(1);
-    return true;
-  }
-  authFail.add(1);
-  console.log(`Login failed: ${resp.status} ${resp.body}`);
-  return false;
-}
-
-export function setup() {
-  if (DEMO_MODE) {
-    console.log('ℹ️ Demo mode: placeholder credentials — skipping auth');
-    return;
-  }
-  if (!doLogin()) throw new Error('Authentication failed in setup');
-  console.log('✅ Login OK, session cookie stored in shared jar');
-}
-
-export default function () {
-  if (DEMO_MODE) {
-    check(true, { 'demo-mode skip': () => true });
-    return;
+    console.log('✅ Login OK, session cookie stored in jar');
+  } else {
+    authFail.add(1);
+    console.log(`⚠️ Login ${login.status}: ${login.body}`);
   }
 
   const H = { 'Content-Type': 'application/json', Origin: BASE };
-
   const userResp = http.get(`${BASE}/api/users`, { headers: H, jar });
   check(userResp, {
     'GET /api/users authenticated': (r) => r.status === 200,
   });
 
-  const collResp = http.get(`${BASE}/api/collections?limit=5`, { headers: H, jar });
+  const collResp = http.get(`${BASE}/api/collections?limit=5`, {
+    headers: H,
+    jar,
+  });
   check(collResp, {
     'GET /api/collections authenticated': (r) => r.status === 200,
   });

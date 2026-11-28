@@ -27,10 +27,15 @@ jobs:
         env:
           ERZA_EMAIL: ${{ secrets.ERZA_EMAIL }}
           ERZA_PASSWORD: ${{ secrets.ERZA_PASSWORD }}
-      # 2. Authenticated E2E (reuses saved session)
+      # 2. Authenticated E2E (reuses saved session from step 1)
+      #    Env vars also passed here so demo-mode detection works when
+      #    Playwright re-runs the auth project via `dependencies: ['auth']`.
       - name: e2e tests
         if: always()
         run: npx playwright test --project=chromium
+        env:
+          ERZA_EMAIL: ${{ secrets.ERZA_EMAIL }}
+          ERZA_PASSWORD: ${{ secrets.ERZA_PASSWORD }}
       - uses: actions/upload-artifact@v4
         if: failure()
         with:
